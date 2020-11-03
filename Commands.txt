@@ -1,0 +1,26 @@
+To Train
+
+	## SSD ##
+	python train.py --resume=weights/ssd300_COCO_5000.pth  --start_iter=?
+
+	## SSD512 ##
+	python mytrain512.py
+
+	## SSD + FPN ##
+	python mytrain.py --model=ssd300_fpn38
+	
+
+	## coco ##
+	python train.py --dataset=COCO --dataset_root=C://Users//nilab//data//coco// 
+
+
+To Eval
+	python eval.py --trained_model=weights/ssd300_COCO_5000.pth --voc_root=C:\Users\nilab\data\VOCdevkit\
+	python eval.py --trained_model=weights/ssd300_mAP_77.43_v2.pth --voc_root=C:\Users\nilab\data\VOCdevkit\
+	python myeval.py --trained_model=weights/VOC.pth --voc_root=C:\Users\nilab\data\VOCdevkit\
+
+	# myeval
+	python myeval.py --trained_model=weights/ssd300_fpn38.pth --voc_root=C:\Users\nilab\data\VOCdevkit\ --model=ssd300_fpn38
+
+To Test
+	python test.py --trained_model=weights/ssd300_mAP_77.43_v2.pth --voc_root=C:\Users\nilab\data\VOCdevkit\
