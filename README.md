@@ -7,5 +7,9 @@ Improve detection performance of [SSD(Single Shot MultiBox Detector)](http://arx
 Note: The SSD code is modified from https://github.com/aa10402tw/ssd.pytorch.
 
 ## Model Architecture
-<img src="data/model.png" width="80%"> 
+<img src="data/model.jpg" width="80%"> 
+<br/>
+
+## Example
+<img src="data/compare.jpg" width="80%"> 
 <br/>

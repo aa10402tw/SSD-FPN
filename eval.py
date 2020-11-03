@@ -14,6 +14,9 @@ from data import VOC_CLASSES as labelmap
 import torch.utils.data as data
 
 from ssd import build_ssd
+from ssd300_fpn38 import build_ssd300_fpn38
+from ssd300_fpn75 import build_ssd300_fpn75
+from ssd300_fpn150 import build_ssd300_fpn150
 
 import sys
 import os
@@ -50,6 +53,8 @@ parser.add_argument('--voc_root', default=VOC_ROOT,
                     help='Location of VOC root directory')
 parser.add_argument('--cleanup', default=True, type=str2bool,
                     help='Cleanup and remove results files following eval')
+parser.add_argument('--model', default='ssd300', choices=['ssd300', 'ssd300_fpn38', 'ssd300_fpn75', 'ssd300_fpn150'],
+                    type=str, help='VOC or COCO')
 
 args = parser.parse_args()
 
@@ -421,7 +426,26 @@ def evaluate_detections(box_list, output_dir, dataset):
 if __name__ == '__main__':
     # load net
     num_classes = len(labelmap) + 1                      # +1 for background
-    net = build_ssd('test', 300, num_classes)            # initialize SSD
+
+    build_net = build_ssd
+    if args.model ==  'ssd300':
+        build_net = build_ssd
+    elif args.model ==  'ssd300_fpn38':
+        build_net = build_ssd300_fpn38
+    elif args.model ==  'ssd300_fpn75':
+        build_net = build_ssd300_fpn75
+    elif args.model ==  'ssd300_fpn150':
+        args.batch_size = 16
+        build_net = build_ssd300_fpn150
+        # cfg['max_iter'] = 240000
+        # cfg['lr_steps'] = (160000, 200000, 240000)
+        # print(cfg['max_iter'])
+        # print(cfg['lr_steps'])
+
+
+
+
+    net = build_net('test', 300, num_classes)            # initialize SSD
     net.load_state_dict(torch.load(args.trained_model))
     
     print('Finished loading model!')

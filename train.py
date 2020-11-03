@@ -1,7 +1,14 @@
 from data import *
 from utils.augmentations import SSDAugmentation
 from layers.modules import MultiBoxLoss
+
 from ssd import build_ssd
+from ssd300_fpn38 import build_ssd300_fpn38
+from ssd300_fpn75 import build_ssd300_fpn75
+from ssd300_fpn150 import build_ssd300_fpn150
+
+
+from mySSD import build_myssd
 import os
 import sys
 import time
@@ -15,6 +22,9 @@ import torch.utils.data as data
 import numpy as np
 import argparse
 
+from tqdm import tqdm
+import pickle
+import matplotlib.pyplot as plt
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
@@ -51,6 +61,8 @@ parser.add_argument('--visdom', default=False, type=str2bool,
                     help='Use visdom for loss visualization')
 parser.add_argument('--save_folder', default='weights/',
                     help='Directory for saving checkpoint models')
+parser.add_argument('--model', default='ssd300', choices=['ssd300', 'ssd300_fpn38', 'ssd300_fpn75', 'ssd300_fpn150'],
+                    type=str, help='VOC or COCO')
 args = parser.parse_args()
 
 
@@ -90,10 +102,31 @@ def train():
 
     if args.visdom:
         import visdom
+        global viz
         viz = visdom.Visdom()
+        print(viz)
 
-    ssd_net = build_ssd('train', cfg['min_dim'], cfg['num_classes'])
+
+    build_net = build_ssd
+    if args.model ==  'ssd300':
+        build_net = build_ssd
+    elif args.model ==  'ssd300_fpn38':
+        build_net = build_ssd300_fpn38
+    elif args.model ==  'ssd300_fpn75':
+        build_net = build_ssd300_fpn75
+    elif args.model ==  'ssd300_fpn150':
+        args.batch_size = 16
+        build_net = build_ssd300_fpn150
+        cfg['max_iter'] = 240000
+        cfg['lr_steps'] = (160000, 200000, 240000)
+        print(cfg['max_iter'])
+        print(cfg['lr_steps'])
+
+
+    ssd_net = build_net('train', cfg['min_dim'], cfg['num_classes'])
     net = ssd_net
+    print(net)
+
 
     if args.cuda:
         net = torch.nn.DataParallel(ssd_net)
@@ -113,6 +146,11 @@ def train():
     if not args.resume:
         print('Initializing weights...')
         # initialize newly added layers' weights with xavier method
+        print('~~~~~~~', weights_init)
+        #ssd_net.SElayers.apply(weights_init)
+        if 'fpn' in args.model:
+            ssd_net.Fusion_Ups.apply(weights_init)
+            ssd_net.Fusion_Lefts.apply(weights_init)
         ssd_net.extras.apply(weights_init)
         ssd_net.loc.apply(weights_init)
         ssd_net.conf.apply(weights_init)
@@ -130,11 +168,13 @@ def train():
     print('Loading the dataset...')
 
     epoch_size = len(dataset) // args.batch_size
-    print('Training SSD on:', dataset.name)
+    print('Training ' + args.model + ' on:', dataset.name)
     print('Using the specified args:')
     print(args)
 
     step_index = 0
+    # add more boxes
+
 
     if args.visdom:
         vis_title = 'SSD.PyTorch on ' + dataset.name
@@ -148,14 +188,20 @@ def train():
                                   pin_memory=True)
     # create batch iterator
     batch_iterator = iter(data_loader)
+
+    pbar = tqdm(total=cfg['max_iter'], unit='iters', ncols=100)
+    pbar.update(args.start_iter)
+
+    loss_history = []
+
     for iteration in range(args.start_iter, cfg['max_iter']):
-        if args.visdom and iteration != 0 and (iteration % epoch_size == 0):
-            update_vis_plot(epoch, loc_loss, conf_loss, epoch_plot, None,
-                            'append', epoch_size)
+        if args.visdom  and (iteration % epoch_size == 0):
+            epoch += 1
+            update_vis_plot(epoch, loc_loss, conf_loss, iter_plot, epoch_plot, 'append', epoch_size)
             # reset epoch loss counters
             loc_loss = 0
             conf_loss = 0
-            epoch += 1
+            
 
         if iteration in cfg['lr_steps']:
             step_index += 1
@@ -187,9 +233,13 @@ def train():
         loc_loss += loss_l.data.item()
         conf_loss += loss_c.data.item()
 
-        if iteration % 1 == 0:
-            print('timer: %.4f sec.' % (t1 - t0))
-            print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
+        pbar.set_postfix( {'loss': '%.2f'%(loss.item())} )
+        pbar.update()
+
+        loss_history.append(loss.item())
+        # if iteration % 1 == 0:
+        #     print('timer: %.4f sec.' % (t1 - t0))
+        #     print('iter ' + repr(iteration) + ' || Loss: %.4f ||' % (loss.item()), end=' ')
 
         if args.visdom:
             update_vis_plot(iteration, loss_l.data[0], loss_c.data[0],
@@ -197,10 +247,21 @@ def train():
 
         if iteration != 0 and iteration % 5000 == 0:
             print('Saving state, iter:', iteration)
-            torch.save(ssd_net.state_dict(), 'weights/ssd300_COCO_' +
-                       repr(iteration) + '.pth')
+            torch.save(ssd_net.state_dict(), 'weights/'+ args.model
+                       + '_' +repr(iteration) + '.pth')
+
+    pbar.close()
     torch.save(ssd_net.state_dict(),
-               args.save_folder + '' + args.dataset + '.pth')
+               args.save_folder + '' + args.dataset + '_' + args.model+'.pth')
+
+    history = {'loss':loss_history}
+    file_name = args.model+'_history.pkl'
+    with open(file_name, 'wb') as f:
+        pickle.dump(history, f)
+        f.close()
+    plt.plot(loss_history)
+    plt.show()
+    
 
 
 def adjust_learning_rate(optimizer, gamma, step):
@@ -221,7 +282,8 @@ def xavier(param):
 def weights_init(m):
     if isinstance(m, nn.Conv2d):
         xavier(m.weight.data)
-        m.bias.data.zero_()
+        if m.bias is not None:
+            m.bias.data.zero_()
 
 
 def create_vis_plot(_xlabel, _ylabel, _title, _legend):
